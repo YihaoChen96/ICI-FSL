@@ -16,26 +16,31 @@ class DataSet(Dataset):
 
     def __init__(self, data_root, setname, img_size):
         self.img_size = img_size
-        csv_path = osp.join(data_root, setname + '.csv')
-        lines = [x.strip() for x in open(csv_path, 'r').readlines()][1:]
+        # csv_path = osp.join(data_root, setname + '.csv')
+        # lines = [x.strip() for x in open(csv_path, 'r').readlines()][1:]
 
-        data = []
-        label = []
-        lb = -1
+        # data = []
+        # label = []
+        # lb = -1
 
-        self.wnids = []
+        # self.wnids = []
 
-        for l in lines:
-            name, wnid = l.split(',')
-            path = osp.join(data_root, 'images', name)
-            if wnid not in self.wnids:
-                self.wnids.append(wnid)
-                lb += 1
-            data.append(path)
-            label.append(lb)
+        # for l in lines:
+        #     name, wnid = l.split(',')
+        #     path = osp.join(data_root, 'images', name)
+        #     if wnid not in self.wnids:
+        #         self.wnids.append(wnid)
+        #         lb += 1
+        #     data.append(path)
+        #     label.append(lb)
 
-        self.data = data
-        self.label = label
+        # self.data = data
+        # self.label = label
+
+        self.data = np.load(osp.join(data_root, setname + "_images.npz"))["images"]
+        self.label = np.load(osp.join(data_root, setname + "_labels.pkl"), allow_pickle=True)["labels"]
+        # print(self.data["images"].shape)
+
         if setname=='test' or setname=='val':
             self.transform = transforms.Compose([
                                                transforms.Resize((img_size, img_size)),
@@ -49,15 +54,16 @@ class DataSet(Dataset):
                                             transforms.ToTensor(),
                                             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
                                         ])
-            
+
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, i):
         if i == -1:
             return torch.zeros([3, self.img_size, self.img_size]), 0
-        path, label = self.data[i], self.label[i]
-        image = self.transform(Image.open(path).convert('RGB'))
+        image, label = self.data[i], self.label[i]
+        # image = self.transform(Image.open(path).convert('RGB'))
+        image = self.transform(Image.fromarray(image))
         return image, 1
 
 
@@ -70,6 +76,7 @@ class CategoriesSampler():
         self.number_distract = n_per[-1]
 
         label = np.array(label)
+
         self.m_ind = []
         for i in range(max(label) + 1):
             ind = np.argwhere(label == i).reshape(-1)
@@ -99,8 +106,8 @@ class CategoriesSampler():
             yield batch
 
 
-filenameToPILImage = lambda x: Image.open(x).convert('RGB')
-
+# filenameToPILImage = lambda x: Image.open(x).convert('RGB')
+numpyToPILImage = lambda x: Image.fromarray(x).convert('RGB')
 def loadSplit(splitFile):
             dictLabels = {}
             with open(splitFile) as csvfile:
@@ -122,7 +129,7 @@ class EmbeddingDataset(Dataset):
         self.img_size = img_size
         # Transformations to the image
         if type=='train':
-            self.transform = transforms.Compose([filenameToPILImage,
+            self.transform = transforms.Compose([numpyToPILImage,
                                                 transforms.Resize((img_size, img_size)),
                                                 transforms.RandomCrop(img_size, padding=8),
                                                 transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
@@ -131,7 +138,7 @@ class EmbeddingDataset(Dataset):
                                                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
                                                 ])
         else:
-            self.transform = transforms.Compose([filenameToPILImage,
+            self.transform = transforms.Compose([numpyToPILImage,
                                                 transforms.Resize((img_size, img_size)),
                                                 transforms.ToTensor(),
                                                 transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])

@@ -87,6 +87,7 @@ def test(args):
     if args.dataset == 'cub':
         num_classes = 100
     elif args.dataset == 'tieredimagenet':
+        assert args.num_test_ways <= 64, "tieredImagenet test ways must be smaller than 64"
         num_classes = 351
     else:
         num_classes = 64
@@ -130,6 +131,9 @@ def test(args):
         test_embeddings = get_embedding(model, test_inputs, args.device)
         if args.unlabel != 0:
             unlabel_inputs = data[k+15*args.num_test_ways:]
+            print(unlabel_inputs.shape)
+            print(data.shape)
+            print(k+15*args.num_test_ways)
             unlabel_embeddings = get_embedding(
                 model, unlabel_inputs, args.device)
         else:
