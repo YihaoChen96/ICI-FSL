@@ -1,0 +1,1 @@
+python main.py --resume ckpt/res12_tiered.pth.tar --dataset tieredimagenet --mode test --num-workers 0 --unlabel 15 --num_shot 1 --num_test_ways 120 --folder dataset
