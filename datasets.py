@@ -76,9 +76,8 @@ class CategoriesSampler():
         self.number_distract = n_per[-1]
 
         label = np.array(label)
-
         self.m_ind = []
-        for i in range(max(label) + 1):
+        for i in range(min(label), max(label) + 1):
             ind = np.argwhere(label == i).reshape(-1)
             ind = torch.from_numpy(ind)
             self.m_ind.append(ind)
