@@ -1,0 +1,5 @@
+# Dataset folder
+dataset/
+
+# Cache
+__pycache__/
