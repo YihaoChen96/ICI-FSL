@@ -22,7 +22,7 @@ def train_embedding(args):
     if args.dataset == 'miniimagenet':
         data_root = os.path.join(args.folder, 'miniimagenet/images-lc/')
     elif args.dataset == 'tieredimagenet':
-        data_root = os.path.join(args.folder, 'tieredimagenet-new/tiered_imagenet/')
+        data_root = os.path.join(args.folder, 'tieredImageNet/')
     else:
         data_root = os.path.join(args.folder, args.dataset)
     from datasets import EmbeddingDataset
