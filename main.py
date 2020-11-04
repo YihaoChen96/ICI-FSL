@@ -96,6 +96,8 @@ def test(args):
         model = resnet12(num_classes).to(args.device)
         state_dict = torch.load(args.resume)
         model.load_state_dict(state_dict)
+    # print("Let's use", torch.cuda.device_count(), "GPUs!")
+    # model = nn.DataParallel(model)
     model.to(args.device)
     model.eval()
     ici = ICI(classifier=args.classifier, num_class=args.num_test_ways,
@@ -112,7 +114,7 @@ def test(args):
     sampler = CategoriesSampler(dataset.label, args.num_batches,
                                 args.num_test_ways, (args.num_shots, 15, args.unlabel))
     testloader = DataLoader(dataset, batch_sampler=sampler,
-                            shuffle=False, num_workers=0, pin_memory=True)
+                            shuffle=False, num_workers=args.num_workers, pin_memory=True)
     k = args.num_shots * args.num_test_ways
     loader = tqdm(testloader, ncols=0)
     iterations = math.ceil(args.unlabel/args.step) + \
@@ -126,17 +128,23 @@ def test(args):
         train_targets = targets[:k].cpu().numpy()
         test_inputs = data[k:k+15*args.num_test_ways]
         test_targets = targets[k:k+15*args.num_test_ways].cpu().numpy()
+        # loader.set_postfix_str("Data loading ready")
         train_embeddings = get_embedding(model, train_inputs, args.device)
+        # loader.set_postfix_str("train_embedding ready")
         ici.fit(train_embeddings, train_targets)
+        # loader.set_postfix_str("ici complete")
         test_embeddings = get_embedding(model, test_inputs, args.device)
+        # loader.set_postfix_str("train_embedding ready")
         if args.unlabel != 0:
             unlabel_inputs = data[k+15*args.num_test_ways:]
             unlabel_embeddings = get_embedding(
                 model, unlabel_inputs, args.device)
+            # loader.set_postfix_str("unlabel_embedding ready")
         else:
             unlabel_embeddings = None
         acc = ici.predict(test_embeddings, unlabel_embeddings,
                           True, test_targets)
+        loader.set_postfix({"Mean Acc": np.mean(acc)})
         for i in range(min(iterations-1,len(acc))):
             acc_list[i].append(acc[i])
         acc_list[-1].append(acc[-1])
