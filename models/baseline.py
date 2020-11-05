@@ -91,8 +91,12 @@ class RandomPick(object):
             # y_hat = np.dot(X_hat, Y)
 
             # Rank, expand the support set
-            support_set = self.expand(support_set, X_hat, y_hat, way, num_support, pseudo_y,
-                                      embeddings, y)
+            # print(support_set)
+            # print(query_y)
+            # print(pseudo_y)
+            # print(query_X)
+            # raise Exception
+            support_set = self.expand(support_set, way, num_support, pseudo_y)
 
             # Transform one-hot back into labels
             y = np.argmax(Y, axis=1)
@@ -103,6 +107,8 @@ class RandomPick(object):
             # If all data were expanded
             if len(support_set) == len(embeddings):
                 break
+        
+        # Use the final classifier to do the prediction
         predicts = self.classifier.predict(query_X)
         if show_detail:
             acc_list.append(np.mean(predicts == query_y))
@@ -110,20 +116,54 @@ class RandomPick(object):
         return predicts
 
 
-    def expand(self, support_set, X_hat, y_hat, way, num_support, pseudo_y, embeddings, targets):
-        _, coefs, _ = self.elasticnet.path(X_hat, y_hat, l1_ratio=1.0)
-        coefs = np.sum(np.abs(coefs.transpose(2, 1, 0)[
-                       ::-1, num_support:, :]), axis=2)
-        selected = np.zeros(way)
-        for gamma in coefs:
-            for i, g in enumerate(gamma):
-                if g == 0.0 and \
-                    (i+num_support not in support_set) and \
-                        (selected[pseudo_y[i]] < self.step):
-                    support_set.append(i+num_support)
-                    selected[pseudo_y[i]] += 1
-            if np.sum(selected >= self.step) == way:
+    def expand(self, support_set, way, num_support, pseudo_y):
+        
+        # # Get the incidental matrix of gammas
+        # _, coefs, _ = self.elasticnet.path(X_hat, y_hat, l1_ratio=1.0)
+        # coefs = np.sum(np.abs(coefs.transpose(2, 1, 0)[
+        #                ::-1, num_support:, :]), axis=2)
+        
+        # Init array to store how many data are selected for each class
+        selected_per_class = np.zeros(way)
+
+        # Randomly choose 
+        num2select = min((way*self.step), len(pseudo_y))
+
+        # Get the indices of the remaining data
+        # diff = set(range(len(pseudo_y))) - set(support_set)
+        # remaining_idx = np.array(list(diff))
+        # print(remaining_idx)
+
+        i = 0
+
+        for i in range(len(pseudo_y)):
+            if  (selected_per_class[pseudo_y[i]] < self.step) and (i+num_support not in support_set):
+                support_set.append(i+num_support)
+                selected_per_class[pseudo_y[i]] += 1
+
+            # If already each class has more than num_step data selected  
+            if np.sum(selected_per_class >= self.step) == way:
                 break
+
+        """ 
+        Implementation Note:
+            Each time ICI select step*ways. It is not always optimal. 
+            First try randomly select step*ways every time. 
+            Then try not to always select step*ways. Can be smaller
+        """
+
+        # for gamma in coefs:
+        #     for i, g in enumerate(gamma):
+        #         if g == 0.0 and (i+num_support not in support_set) \
+        #             and (selected_per_class[pseudo_y[i]] < self.step):
+        #             support_set.append(i+num_support)
+
+        #             # Counter +1 for given class
+        #             selected_per_class[pseudo_y[i]] += 1
+
+        #     # If already each class has more than num_step data selected
+        #     if np.sum(selected_per_class >= self.step) == way:
+        #         break
         return support_set
 
     def initial_embed(self, reduce, d):

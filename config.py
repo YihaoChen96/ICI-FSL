@@ -10,6 +10,8 @@ def config():
     parser.add_argument('--resume', type=str, default=None)
     parser.add_argument('--classifier', type=str, default='lr',
                         help='lr/svm.')
+    parser.add_argument('--data_picker', type=str, default='ici',
+                        help='choose data picker from ici or random.')
     parser.add_argument('--gpu', '-g', type=str, default='0')
     parser.add_argument('--mode', type=str, default='test',
                         help='train/test')

@@ -12,6 +12,7 @@ from sklearn.preprocessing import normalize
 from config import config
 from datasets import CategoriesSampler, DataSet
 from models.ici import ICI
+from models.baseline import RandomPick
 from utils import get_embedding, mean_confidence_interval, setup_seed
 
 
@@ -28,9 +29,10 @@ def train_embedding(args):
     from datasets import EmbeddingDataset
     source_set = EmbeddingDataset(data_root, args.img_size, 'train')
     source_loader = DataLoader(
-        source_set, num_workers=4, batch_size=64, shuffle=True)
+        source_set, num_workers=args.num_workers, batch_size=64, shuffle=True)
     test_set = EmbeddingDataset(data_root, args.img_size, 'val')
-    test_loader = DataLoader(test_set, num_workers=4, batch_size=32, shuffle=False)
+    # test_set = EmbeddingDataset(data_root, args.img_size, 'trainval')
+    test_loader = DataLoader(test_set, num_workers=args.num_workers, batch_size=32, shuffle=False)
 
     if args.dataset == 'cub':
         num_classes = 100
@@ -79,7 +81,6 @@ def train_embedding(args):
             torch.save(model.state_dict(), save_path)
             torch.save(model.state_dict(), os.path.join(ckpt_root,'res12_best.pth.tar'))
 
-
 def test(args):
     setup_seed(2333)
     import warnings
@@ -100,8 +101,15 @@ def test(args):
     # model = nn.DataParallel(model)
     model.to(args.device)
     model.eval()
-    ici = ICI(classifier=args.classifier, num_class=args.num_test_ways,
-              step=args.step, reduce=args.embed, d=args.dim)
+
+    if args.data_picker == "ici":
+        data_picker = ICI(classifier=args.classifier, num_class=args.num_test_ways,
+                step=args.step, reduce=args.embed, d=args.dim)
+    elif args.data_picker == "random":
+        data_picker = RandomPick(classifier=args.classifier, num_class=args.num_test_ways,
+                step=args.step, reduce=args.embed, d=args.dim)
+    else:
+        raise NotImplementedError
 
     if args.dataset == 'miniimagenet':
         data_root = os.path.join(args.folder, 'miniimagenet/images-lc/')
@@ -110,6 +118,7 @@ def test(args):
     else:
         data_root = os.path.join(args.folder, args.dataset)
     dataset = DataSet(data_root, 'test', args.img_size)
+    # dataset = DataSet(data_root, 'val', args.img_size)
 
     sampler = CategoriesSampler(dataset.label, args.num_batches,
                                 args.num_test_ways, (args.num_shots, 15, args.unlabel))
@@ -131,7 +140,7 @@ def test(args):
         # loader.set_postfix_str("Data loading ready")
         train_embeddings = get_embedding(model, train_inputs, args.device)
         # loader.set_postfix_str("train_embedding ready")
-        ici.fit(train_embeddings, train_targets)
+        data_picker.fit(train_embeddings, train_targets)
         # loader.set_postfix_str("ici complete")
         test_embeddings = get_embedding(model, test_inputs, args.device)
         # loader.set_postfix_str("train_embedding ready")
@@ -142,7 +151,7 @@ def test(args):
             # loader.set_postfix_str("unlabel_embedding ready")
         else:
             unlabel_embeddings = None
-        acc = ici.predict(test_embeddings, unlabel_embeddings,
+        acc = data_picker.predict(test_embeddings, unlabel_embeddings,
                           True, test_targets)
         loader.set_postfix({"Mean Acc": np.mean(acc)})
         for i in range(min(iterations-1,len(acc))):
