@@ -124,10 +124,10 @@ def loadSplit(splitFile):
 
 class EmbeddingDataset(Dataset):
 
-    def __init__(self, dataroot, img_size, type = 'train'):
+    def __init__(self, data_root, img_size, setname = 'train'):
         self.img_size = img_size
         # Transformations to the image
-        if type=='train':
+        if setname=='train':
             self.transform = transforms.Compose([numpyToPILImage,
                                                 transforms.Resize((img_size, img_size)),
                                                 transforms.RandomCrop(img_size, padding=8),
@@ -144,42 +144,49 @@ class EmbeddingDataset(Dataset):
                                                 ])
 
         
-        self.ImagesDir = os.path.join(dataroot,'images')
-        self.data = loadSplit(splitFile = os.path.join(dataroot,'train' + '.csv'))
+        # self.ImagesDir = os.path.join(dataroot,'images')
+        # self.data = loadSplit(splitFile = os.path.join(dataroot,'train' + '.csv'))
 
-        self.data = collections.OrderedDict(sorted(self.data.items()))
-        keys = list(self.data.keys())
-        self.classes_dict = {keys[i]:i  for i in range(len(keys))} # map NLabel to id(0-99)
+        self.data = np.load(osp.join(data_root, setname + "_images.npz"))["images"]
+        self.label = np.load(osp.join(data_root, setname + "_labels.pkl"), allow_pickle=True)["labels"]
 
-        self.Files = []
-        self.belong = []
+        # self.data = collections.OrderedDict(sorted(self.data.items()))
+        # keys = list(self.data.keys())
+        # self.classes_dict = {keys[i]:i  for i in range(len(keys))} # map NLabel to id(0-99)
 
-        for c in range(len(keys)):
-            num = 0
-            num_train = int(len(self.data[keys[c]]) * 9 / 10)
-            for file in self.data[keys[c]]:
-                if type == 'train' and num <= num_train:
-                    self.Files.append(file)
-                    self.belong.append(c)
-                elif type=='val' and num>num_train:
-                    self.Files.append(file)
-                    self.belong.append(c)
-                num = num+1
+        # self.Files = []
+        # self.belong = []
+
+        # for c in range(len(keys)):
+        #     num = 0
+        #     num_train = int(len(self.data[keys[c]]) * 9 / 10)
+        #     for file in self.data[keys[c]]:
+        #         if setname == 'train' and num <= num_train:
+        #             self.Files.append(file)
+        #             self.belong.append(c)
+        #         elif setname =='val' and num>num_train:
+        #             self.Files.append(file)
+        #             self.belong.append(c)
+        #         num = num+1
 
 
-        self.__size = len(self.Files)
+        self.__size = len(self.data)
 
     def __getitem__(self, index):
 
-        c = self.belong[index]
-        File = self.Files[index]
+        # c = self.label[index]
+        # File = self.Files[index]
 
-        path = os.path.join(self.ImagesDir,str(File))
-        try:
-            images = self.transform(path)
-        except RuntimeError:
-            import pdb;pdb.set_trace()
-        return images,c
+        # path = os.path.join(self.ImagesDir,str(File))
+        # try:
+        #     images = self.transform(path)
+        # except RuntimeError:
+        #     import pdb;pdb.set_trace()
+        # return images,c
+        image, label = self.data[index], self.label[index]
+        # image = self.transform(Image.open(path).convert('RGB'))
+        image = self.transform(image)
+        return image, label
 
     def __len__(self):
         return self.__size
