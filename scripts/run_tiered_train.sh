@@ -1,2 +1,2 @@
 # python main.py --resume ckpt/res12_tiered.pth.tar --dataset tieredimagenet --mode test --num-workers 8 --unlabel 80 --num_shot 1 --num_test_ways 5 --folder dataset --gpu "0,1,2,3"
-python main.py --resume ckpt/res12_tiered.pth.tar --dataset tieredimagenet --folder dataset --unlabel 80 --num_shot 1 --num_test_ways 5
+python main.py --mode train --dataset tieredimagenet --folder dataset --output-folder ./ckpt/new_run/
