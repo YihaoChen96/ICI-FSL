@@ -13,6 +13,7 @@ from config import config
 from datasets import CategoriesSampler, DataSet
 from models.ici import ICI
 from models.baseline import RandomPick
+from models.consistancy import FixmatchPick
 from utils import get_embedding, mean_confidence_interval, setup_seed
 
 
@@ -30,8 +31,8 @@ def train_embedding(args):
     source_set = EmbeddingDataset(data_root, args.img_size, 'train')
     source_loader = DataLoader(
         source_set, num_workers=args.num_workers, batch_size=64, shuffle=True)
-    test_set = EmbeddingDataset(data_root, args.img_size, 'val')
-    # test_set = EmbeddingDataset(data_root, args.img_size, 'trainval')
+    # test_set = EmbeddingDataset(data_root, args.img_size, 'val')
+    test_set = EmbeddingDataset(data_root, args.img_size, 'trainval')
     test_loader = DataLoader(test_set, num_workers=args.num_workers, batch_size=32, shuffle=False)
 
     if args.dataset == 'cub':
@@ -105,10 +106,19 @@ def test(args):
     if args.data_picker == "ici":
         data_picker = ICI(classifier=args.classifier, num_class=args.num_test_ways,
                 step=args.step, reduce=args.embed, d=args.dim)
+        dataset = DataSet(data_root, 'test', args.img_size)
+
     elif args.data_picker == "random":
         data_picker = RandomPick(classifier=args.classifier, num_class=args.num_test_ways,
                 step=args.step, reduce=args.embed, d=args.dim)
-    else:
+        dataset = DataSet(data_root, 'test', args.img_size)
+
+    elif args.data_picker == "fixmatch":
+        data_picker = FixmatchPick(args.img_size, classifier=args.classifier, num_class=args.num_test_ways,
+                step=args.step, reduce=args.embed, d=args.dim)
+        # dataset = FixmatchDataset(data_root, 'test', args.img_size)
+        dataset = DataSet(data_root, 'test', args.img_size)
+    else:    
         raise NotImplementedError
 
     if args.dataset == 'miniimagenet':
@@ -117,7 +127,7 @@ def test(args):
         data_root = os.path.join(args.folder, 'tieredImageNet/')
     else:
         data_root = os.path.join(args.folder, args.dataset)
-    dataset = DataSet(data_root, 'test', args.img_size)
+    
     # dataset = DataSet(data_root, 'val', args.img_size)
 
     sampler = CategoriesSampler(dataset.label, args.num_batches,
@@ -129,6 +139,7 @@ def test(args):
     iterations = math.ceil(args.unlabel/args.step) + \
         2 if args.unlabel != 0 else math.ceil(15/args.step) + 2
     acc_list = [[] for _ in range(iterations)]
+
     for data, indicator in loader:
         targets = torch.arange(args.num_test_ways).repeat(args.num_shots+15+args.unlabel).long()[
             indicator[:args.num_test_ways*(args.num_shots+15+args.unlabel)] != 0]
@@ -169,9 +180,9 @@ def test(args):
 
 
 def main(args):
-    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+    # os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
     args.device = torch.device(
-        "cuda:0" if torch.cuda.is_available() else "cpu")
+        "cuda" if torch.cuda.is_available() else "cpu")
     print(args)
     if args.mode == 'train':
         train_embedding(args)
