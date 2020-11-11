@@ -10,32 +10,32 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.transforms import Compose, Normalize, Resize, ToTensor
+from models.transforms import TransformFix
+
+class NonTransDataset(Dataset):
+    def __init__(self, data_root, setname, img_size):
+        self.img_size = img_size
+
+        self.data = np.load(osp.join(data_root, setname + "_images.npz"))["images"]
+        self.label = np.load(osp.join(data_root, setname + "_labels.pkl"), allow_pickle=True)["labels"]
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, i):
+        if i == -1:
+            return torch.zeros([3, self.img_size, self.img_size]), 0
+        image, label = self.data[i], self.label[i]
+        # image = self.transform(Image.open(path).convert('RGB'))
+        image = Image.fromarray(image)
+        return image, 1
+
 
 
 class DataSet(Dataset):
 
     def __init__(self, data_root, setname, img_size):
         self.img_size = img_size
-        # csv_path = osp.join(data_root, setname + '.csv')
-        # lines = [x.strip() for x in open(csv_path, 'r').readlines()][1:]
-
-        # data = []
-        # label = []
-        # lb = -1
-
-        # self.wnids = []
-
-        # for l in lines:
-        #     name, wnid = l.split(',')
-        #     path = osp.join(data_root, 'images', name)
-        #     if wnid not in self.wnids:
-        #         self.wnids.append(wnid)
-        #         lb += 1
-        #     data.append(path)
-        #     label.append(lb)
-
-        # self.data = data
-        # self.label = label
 
         self.data = np.load(osp.join(data_root, setname + "_images.npz"))["images"]
         self.label = np.load(osp.join(data_root, setname + "_labels.pkl"), allow_pickle=True)["labels"]
