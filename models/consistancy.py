@@ -11,7 +11,7 @@ from .transforms import TransformFix
 class FixmatchPick(object):
 
     def __init__(self, img_size, classifier='lr', num_class=None, step=5, max_iter='auto',
-                 reduce='pca', d=5, norm='l2', mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225]):
+                 reduce='pca', d=5, norm='l2', mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225], fixmatch_threshold = 0.95):
         self.step = step
         self.max_iter = max_iter
         self.num_class = num_class
@@ -21,12 +21,13 @@ class FixmatchPick(object):
         self.transform_fix = TransformFix(img_size, mean, std)
         self.elasticnet = ElasticNet(alpha=1.0, l1_ratio=1.0, fit_intercept=True,
                                          normalize=True, warm_start=True, selection='cyclic')
+        self.threshold = fixmatch_threshold
         self.support_X, self.support_y = None, None
     def fit(self, X, y):
         self.support_X = self.norm(X)
         self.support_y = y
 
-    def predict(self, X, unlabel_X=None, show_detail=False, query_y=None):
+    def predict(self, X, unlabel_X, strong_X, weak_X, show_detail=False, query_y=None):
         
         # Assert call fit before predict
         assert self.support_X is not None and self.support_y is not None, "Need to call function 'fit' before 'predict'"
@@ -35,39 +36,18 @@ class FixmatchPick(object):
         support_X, support_y = self.support_X, self.support_y
         way, num_support = self.num_class, len(support_X)
         
-        # Normalize query data
+        # Normalize data
         query_X = self.norm(X)
 
-        if unlabel_X is None:
-            # If there're no unlabeled data, assign query data to unlabeled data
-            unlabel_X = query_X
-        else:
-            # If there're unlabeled data, normalize them
-            unlabel_X = self.norm(unlabel_X)
-
-        weak_X, strong_X = [], []
-        for x in unlabel_X:
-            weak, strong = self.transform(x)
-            weak_X.append(weak)
-            strong_X.append(strong)
-        weak_X = np.vstack(weak)
-        strong_X = np.vstack(strong)
+        unlabel_X = self.norm(unlabel_X)
+        weak_X = self.norm(weak_X)
+        strong_X = self.norm(strong_X)
         
         # TODO: PROBLEM!!! If there's no unlabeled data, 
         # its number will be replaced by the number of query data.
         # Is this correct?
         num_unlabel = unlabel_X.shape[0]
         embeddings = np.concatenate([support_X, unlabel_X])
-
-        # Dimension reduction
-        X = self.embed(embeddings)
-
-        weak_X = self.embed(weak_X)
-        strong_X = self.embed(strong_X)
-
-        # # Solve the linear hypothesis
-        # H = np.dot(np.dot(X, np.linalg.inv(np.dot(X.T, X))), X.T)
-        # X_hat = np.eye(H.shape[0]) - H
 
         # PROBLEM!!! 
         # Not quite sure what this step mean?
@@ -96,23 +76,16 @@ class FixmatchPick(object):
 
             # Get pseudo labels for the unlabeled set
             pseudo_y = self.classifier.predict(unlabel_X)
-            weak_y = self.classifier.predict(weak_X)
-            strong_y = self.classifier.predict(strong_X)
+            # weak_y = self.classifier.predict(weak_X)
+            weak_prob = self.classifier.predict_proba(weak_X)
+            # strong_y = self.classifier.predict(strong_X)
+            strong_prob = self.classifier.predict_proba(strong_X)
 
             # Transform the labels into one-hot encoding
             y = np.concatenate([support_y, pseudo_y])
             
-
-            # # Dot product of the regression with the one-hot encoding
-            # y_hat = np.dot(X_hat, Y)
-
-            # Rank, expand the support set
-            # print(support_set)
-            # print(query_y)
-            # print(pseudo_y)
-            # print(query_X)
-            # raise Exception
-            support_set = self.expand(support_set, way, num_support, pseudo_y, weak_y, strong_y)
+            # Add new data to support set
+            support_set = self.expand(support_set, way, num_support, pseudo_y, weak_prob, strong_prob)
 
             # Fit the classifier on expanded embeddings and labels
             self.classifier.fit(embeddings[support_set], y[support_set])
@@ -129,30 +102,29 @@ class FixmatchPick(object):
         return predicts
 
 
-    def expand(self, support_set, way, num_support, pseudo_y, weak_y, strong_y):
+    def expand(self, support_set, way, num_support, pseudo_y, weak_prob, strong_prob):
+        weak_argmax = np.argmax(weak_prob, axis = 1)
+        strong_argmax = np.argmax(strong_prob, axis = 1)
         
-        # # Get the incidental matrix of gammas
-        # _, coefs, _ = self.elasticnet.path(X_hat, y_hat, l1_ratio=1.0)
-        # coefs = np.sum(np.abs(coefs.transpose(2, 1, 0)[
-        #                ::-1, num_support:, :]), axis=2)
-        
+
+        # Determin for each row, whether the prediciton is above the threshold or not
+        # passed = weak_prob[np.arange(len(weak_prob)), weak_argmax[weak_argmax == strong_argmax]] > self.threshold
+
         # Init array to store how many data are selected for each class
         selected_per_class = np.zeros(way)
 
         # Randomly choose 
-        num2select = min((way*self.step), len(pseudo_y))
+        # num2select = min((way*self.step), len(weak_argmax))
 
-        # Get the indices of the remaining data
-        # diff = set(range(len(pseudo_y))) - set(support_set)
-        # remaining_idx = np.array(list(diff))
-        # print(remaining_idx)
 
         i = 0
 
-        for i in range(len(pseudo_y)):
-            if  (selected_per_class[pseudo_y[i]] < self.step) and (i+num_support not in support_set) and weak_y[i] == strong_y[i]:
+        for i in range(len(weak_argmax)):
+            if  (selected_per_class[weak_argmax[i]] < self.step) and (i+num_support not in support_set) \
+                    and (weak_argmax[i] == strong_argmax[i]) and (weak_prob[i, weak_argmax[i]] > self.threshold):
+                
                 support_set.append(i+num_support)
-                selected_per_class[pseudo_y[i]] += 1
+                selected_per_class[weak_argmax[i]] += 1
 
             # If already each class has more than num_step data selected  
             if np.sum(selected_per_class >= self.step) == way:
@@ -164,19 +136,6 @@ class FixmatchPick(object):
             First try randomly select step*ways every time. 
             Then try not to always select step*ways. Can be smaller
         """
-
-        # for gamma in coefs:
-        #     for i, g in enumerate(gamma):
-        #         if g == 0.0 and (i+num_support not in support_set) \
-        #             and (selected_per_class[pseudo_y[i]] < self.step):
-        #             support_set.append(i+num_support)
-
-        #             # Counter +1 for given class
-        #             selected_per_class[pseudo_y[i]] += 1
-
-        #     # If already each class has more than num_step data selected
-        #     if np.sum(selected_per_class >= self.step) == way:
-        #         break
         return support_set
 
     def initial_embed(self, reduce, d):

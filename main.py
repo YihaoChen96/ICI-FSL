@@ -10,10 +10,11 @@ from tqdm import tqdm
 from sklearn.preprocessing import normalize
 
 from config import config
-from datasets import CategoriesSampler, DataSet
+from datasets import CategoriesSampler, DataSet, FixMatchDataSet
 from models.ici import ICI
 from models.baseline import RandomPick
 from models.consistancy import FixmatchPick
+from models.transforms import TransformFix
 from utils import get_embedding, mean_confidence_interval, setup_seed
 
 
@@ -106,18 +107,19 @@ def test(args):
     if args.data_picker == "ici":
         data_picker = ICI(classifier=args.classifier, num_class=args.num_test_ways,
                 step=args.step, reduce=args.embed, d=args.dim)
-        dataset = DataSet(data_root, 'test', args.img_size)
+        # dataset = DataSet(data_root, 'test', args.img_size)
 
     elif args.data_picker == "random":
         data_picker = RandomPick(classifier=args.classifier, num_class=args.num_test_ways,
                 step=args.step, reduce=args.embed, d=args.dim)
-        dataset = DataSet(data_root, 'test', args.img_size)
+        # dataset = DataSet(data_root, 'test', args.img_size)
 
     elif args.data_picker == "fixmatch":
         data_picker = FixmatchPick(args.img_size, classifier=args.classifier, num_class=args.num_test_ways,
-                step=args.step, reduce=args.embed, d=args.dim)
-        # dataset = FixmatchDataset(data_root, 'test', args.img_size)
-        dataset = DataSet(data_root, 'test', args.img_size)
+                step=args.step, reduce=args.embed, d=args.dim, fixmatch_threshold = args.fixmatch_threshold)
+        transform_fix = TransformFix(args.img_size,  [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        
+        # dataset = DataSet(data_root, 'test', args.img_size)
     else:    
         raise NotImplementedError
 
@@ -128,7 +130,10 @@ def test(args):
     else:
         data_root = os.path.join(args.folder, args.dataset)
     
-    # dataset = DataSet(data_root, 'val', args.img_size)
+    if args.data_picker == "fixmatch":
+        dataset = FixMatchDataSet(data_root, 'val', args.img_size)
+    else:
+        dataset = DataSet(data_root, 'val', args.img_size)
 
     sampler = CategoriesSampler(dataset.label, args.num_batches,
                                 args.num_test_ways, (args.num_shots, 15, args.unlabel))
@@ -141,13 +146,26 @@ def test(args):
     acc_list = [[] for _ in range(iterations)]
 
     for data, indicator in loader:
+
         targets = torch.arange(args.num_test_ways).repeat(args.num_shots+15+args.unlabel).long()[
             indicator[:args.num_test_ways*(args.num_shots+15+args.unlabel)] != 0]
-        data = data[indicator != 0].to(args.device)
-        train_inputs = data[:k]
-        train_targets = targets[:k].cpu().numpy()
-        test_inputs = data[k:k+15*args.num_test_ways]
-        test_targets = targets[k:k+15*args.num_test_ways].cpu().numpy()
+        
+        if args.data_picker == "fixmatch":
+            # print(len(data))
+            # print(data[0])
+            data, strongs, weaks = data[0], data[1], data[2]
+            data = data[indicator != 0].to(args.device)
+            train_inputs = data[:k]
+            
+            train_targets = targets[:k].cpu().numpy()
+            test_inputs = data[k:k+15*args.num_test_ways]
+            test_targets = targets[k:k+15*args.num_test_ways].cpu().numpy()
+        else:
+            data = data[indicator != 0].to(args.device)
+            train_inputs = data[:k]
+            train_targets = targets[:k].cpu().numpy()
+            test_inputs = data[k:k+15*args.num_test_ways]
+            test_targets = targets[k:k+15*args.num_test_ways].cpu().numpy()
         # loader.set_postfix_str("Data loading ready")
         train_embeddings = get_embedding(model, train_inputs, args.device)
         # loader.set_postfix_str("train_embedding ready")
@@ -155,15 +173,34 @@ def test(args):
         # loader.set_postfix_str("ici complete")
         test_embeddings = get_embedding(model, test_inputs, args.device)
         # loader.set_postfix_str("train_embedding ready")
-        if args.unlabel != 0:
+
+        if args.data_picker == "fixmatch":
+            assert args.unlabel != 0, "Fixmatch must have unlabeled data"
             unlabel_inputs = data[k+15*args.num_test_ways:]
+            strong = strongs[k+15*args.num_test_ways:]
+            weak = weaks[k+15*args.num_test_ways:]
+
             unlabel_embeddings = get_embedding(
-                model, unlabel_inputs, args.device)
-            # loader.set_postfix_str("unlabel_embedding ready")
+                    model, unlabel_inputs, args.device)
+
+            strong_embeddings = get_embedding(
+                    model, strong, args.device)
+            weak_embeddings = get_embedding(
+                    model, weak, args.device)
+            acc = data_picker.predict(test_embeddings, unlabel_embeddings, strong_embeddings, weak_embeddings,
+                            True, test_targets)
+
         else:
-            unlabel_embeddings = None
-        acc = data_picker.predict(test_embeddings, unlabel_embeddings,
-                          True, test_targets)
+            if args.unlabel != 0:
+                unlabel_inputs = data[k+15*args.num_test_ways:]
+                unlabel_embeddings = get_embedding(
+                    model, unlabel_inputs, args.device)
+                # loader.set_postfix_str("unlabel_embedding ready")
+            else:
+                unlabel_embeddings = None
+            acc = data_picker.predict(test_embeddings, unlabel_embeddings,
+                            True, test_targets)
+
         loader.set_postfix({"Mean Acc": np.mean(acc)})
         for i in range(min(iterations-1,len(acc))):
             acc_list[i].append(acc[i])

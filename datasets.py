@@ -30,8 +30,42 @@ class NonTransDataset(Dataset):
         image = Image.fromarray(image)
         return image, 1
 
+class FixMatchDataSet(Dataset):
 
+    def __init__(self, data_root, setname, img_size):
+        self.img_size = img_size
 
+        self.data = np.load(osp.join(data_root, setname + "_images.npz"))["images"]
+        self.label = np.load(osp.join(data_root, setname + "_labels.pkl"), allow_pickle=True)["labels"]
+        # print(self.data["images"].shape)
+
+        if setname=='test' or setname=='val':
+            self.transform_fix = TransformFix(img_size, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            self.transform = transforms.Compose([
+                                               transforms.Resize((img_size, img_size)),
+                                               transforms.ToTensor(),
+                                               transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                                       ])
+        else:
+            self.transform = transforms.Compose([
+                                            transforms.RandomResizedCrop((img_size, img_size)),
+                                            transforms.RandomHorizontalFlip(),
+                                            transforms.ToTensor(),
+                                            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                                        ])
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, i):
+        if i == -1:
+            return torch.zeros([3, self.img_size, self.img_size]), 0
+        image, label = self.data[i], self.label[i]
+        # image = self.transform(Image.open(path).convert('RGB'))
+        (strong, weak) = self.transform_fix(Image.fromarray(image))
+        image = self.transform(Image.fromarray(image))
+        return (image, strong, weak), 1
+ 
 class DataSet(Dataset):
 
     def __init__(self, data_root, setname, img_size):

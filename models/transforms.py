@@ -108,14 +108,16 @@ def x_u_split(labels,
 class TransformFix(object):
     def __init__(self, img_size, mean, std):
         self.weak = transforms.Compose([
+            # transforms.ToTensor(),
             transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(size=32,
-                                  padding=int(32*0.125),
+            transforms.RandomCrop(size= img_size,
+                                  padding=int( img_size*0.125),
                                   padding_mode='reflect')])
         self.strong = transforms.Compose([
+            # transforms.ToTensor(),
             transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(size=32,
-                                  padding=int(32*0.125),
+            transforms.RandomCrop(size= img_size,
+                                  padding=int( img_size*0.125),
                                   padding_mode='reflect'),
             RandAugmentMC(n=2, m=10)])
         self.normalize = transforms.Compose([
