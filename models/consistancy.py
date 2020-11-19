@@ -120,7 +120,7 @@ class FixmatchPick(object):
         i = 0
 
         for i in range(len(weak_argmax)):
-            if  (selected_per_class[weak_argmax[i]] < self.step) and (i+num_support not in support_set) \
+            if (i+num_support not in support_set) \
                     and (weak_argmax[i] == strong_argmax[i]) and (weak_prob[i, weak_argmax[i]] > self.threshold):
                 
                 support_set.append(i+num_support)
