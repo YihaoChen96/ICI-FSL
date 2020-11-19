@@ -15,6 +15,7 @@ from models.ici import ICI
 from models.baseline import RandomPick
 from models.consistancy import FixmatchPick
 from models.transforms import TransformFix
+from models.consistancy_torch import FixmatchPick_Torch
 from utils import get_embedding, mean_confidence_interval, setup_seed
 
 
@@ -118,7 +119,12 @@ def test(args):
         data_picker = FixmatchPick(args.img_size, classifier=args.classifier, num_class=args.num_test_ways,
                 step=args.step, reduce=args.embed, d=args.dim, fixmatch_threshold = args.fixmatch_threshold)
         transform_fix = TransformFix(args.img_size,  [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-        
+    
+    elif args.data_picker == "fixmatch_torch":
+        data_picker = FixmatchPick_Torch(args.img_size, 512, args.num_test_ways, args.device,
+                step=args.step, reduce=args.embed, fixmatch_threshold = args.fixmatch_threshold)
+        transform_fix = TransformFix(args.img_size,  [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            
         # dataset = DataSet(data_root, 'test', args.img_size)
     else:    
         raise NotImplementedError
@@ -130,7 +136,7 @@ def test(args):
     else:
         data_root = os.path.join(args.folder, args.dataset)
     
-    if args.data_picker == "fixmatch":
+    if args.data_picker == "fixmatch" or args.data_picker == "fixmatch_torch":
         dataset = FixMatchDataSet(data_root, 'val', args.img_size)
     else:
         dataset = DataSet(data_root, 'val', args.img_size)
@@ -150,9 +156,7 @@ def test(args):
         targets = torch.arange(args.num_test_ways).repeat(args.num_shots+15+args.unlabel).long()[
             indicator[:args.num_test_ways*(args.num_shots+15+args.unlabel)] != 0]
         
-        if args.data_picker == "fixmatch":
-            # print(len(data))
-            # print(data[0])
+        if args.data_picker == "fixmatch" or args.data_picker == "fixmatch_torch":
             data, strongs, weaks = data[0], data[1], data[2]
             data = data[indicator != 0].to(args.device)
             train_inputs = data[:k]
@@ -174,7 +178,7 @@ def test(args):
         test_embeddings = get_embedding(model, test_inputs, args.device)
         # loader.set_postfix_str("train_embedding ready")
 
-        if args.data_picker == "fixmatch":
+        if args.data_picker == "fixmatch" or args.data_picker == "fixmatch_torch":
             assert args.unlabel != 0, "Fixmatch must have unlabeled data"
             unlabel_inputs = data[k+15*args.num_test_ways:]
             strong = strongs[k+15*args.num_test_ways:]
