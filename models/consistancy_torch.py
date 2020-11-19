@@ -16,10 +16,12 @@ import torch.nn.functional as F
 class LogisticRegressionModel(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(LogisticRegressionModel, self).__init__()
-        self.linear = nn.Linear(input_dim, output_dim)
+        self.linear1 = nn.Linear(input_dim, input_dim//2)
+        self.relu = nn.ReLU()
+        self.linear2 = nn.Linear(input_dim//2, output_dim)
 
     def forward(self, x):
-        out = self.linear(x)
+        out = self.linear2(self.relu(self.linear1(x)))
         return out
 
 class FixmatchPick_Torch(object):
@@ -50,7 +52,7 @@ class FixmatchPick_Torch(object):
         self.support_X = self.norm(X)
         self.support_y = y
     
-    def train(self, X, y, weak_x, strong_x, epoch = 100):
+    def train(self, X, y, weak_x, strong_x, epoch = 10):
 
         self.model.train()
         total_loss = 0.
@@ -69,11 +71,12 @@ class FixmatchPick_Torch(object):
                                   reduction='none') * mask).mean()
 
             loss = Lx + self.lambda_u * Lu
+            # loss = Lx
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
             total_loss += loss.detach().item()
-        # print(total_loss)
+            # print(loss.item())
         return total_loss
 
     def predict(self, X, unlabel_X, strong_X, weak_X, show_detail=False, query_y=None):
@@ -120,7 +123,7 @@ class FixmatchPick_Torch(object):
             acc_list = []
         
         y = support_y
-
+        # print(self.max_iter)
         for _ in range(self.max_iter):
             if show_detail:
                 predicts = self.model(query_X)
@@ -141,26 +144,26 @@ class FixmatchPick_Torch(object):
             # Do we want to remove weak X from weak aug after expansion?
             total_loss = self.train(embeddings[support_set], y[support_set], weak_X, strong_X)
             
-            prob = self.model(unlabel_X)
-            score = F.softmax(prob.detach_(), dim=-1)
-            max_probs, pseudo_y = torch.max(score, dim=-1)
+            # prob = self.model(unlabel_X)
+            # score = F.softmax(prob.detach_(), dim=-1)
+            # max_probs, pseudo_y = torch.max(score, dim=-1)
 
-            weak_prob = self.model(weak_X)
-            strong_prob = self.model(strong_X)
+            # weak_prob = self.model(weak_X)
+            # strong_prob = self.model(strong_X)
 
-            # Transform the labels into one-hot encoding
-            y = torch.cat([support_y, pseudo_y])
-            # print(weak_X.shape)
+            # # Transform the labels into one-hot encoding
+            # y = torch.cat([support_y, pseudo_y])
+            # # print(weak_X.shape)
             
-            # Add new data to support set
-            support_set = self.expand(support_set, way, num_support, pseudo_y, weak_prob, strong_prob)
+            # # Add new data to support set
+            # support_set = self.expand(support_set, way, num_support, pseudo_y, weak_prob, strong_prob)
 
-            # Fit the classifier on expanded embeddings and labels
-            # self.classifier.fit(embeddings[support_set], y[support_set])
+            # # Fit the classifier on expanded embeddings and labels
+            # # self.classifier.fit(embeddings[support_set], y[support_set])
 
-            # If all data were expanded
-            if len(support_set) == len(embeddings):
-                break
+            # # If all data were expanded
+            # if len(support_set) == len(embeddings):
+            #     break
         
         # Use the final classifier to do the prediction
         predicts = self.model(query_X)

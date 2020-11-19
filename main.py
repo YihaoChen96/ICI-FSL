@@ -121,7 +121,7 @@ def test(args):
         transform_fix = TransformFix(args.img_size,  [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     
     elif args.data_picker == "fixmatch_torch":
-        data_picker = FixmatchPick_Torch(args.img_size, 512, args.num_test_ways, args.device,
+        data_picker = FixmatchPick_Torch(args.img_size, 512, args.num_test_ways, args.device, max_iter = "fix",
                 step=args.step, reduce=args.embed, fixmatch_threshold = args.fixmatch_threshold)
         transform_fix = TransformFix(args.img_size,  [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
             
