@@ -12,35 +12,50 @@ import torch
 import torch.nn as nn
 import torch.optim as optim 
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import LambdaLR
+
+def get_cosine_schedule_with_warmup(optimizer,
+                                    num_warmup_steps,
+                                    num_training_steps,
+                                    num_cycles=7./16.,
+                                    last_epoch=-1):
+    def _lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        no_progress = float(current_step - num_warmup_steps) / \
+            float(max(1, num_training_steps - num_warmup_steps))
+        return max(0., math.cos(math.pi * num_cycles * no_progress))
+
+    return LambdaLR(optimizer, _lr_lambda, last_epoch)
+
 
 class LogisticRegressionModel(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(LogisticRegressionModel, self).__init__()
-        self.linear1 = nn.Linear(input_dim, input_dim//2)
-        self.relu = nn.ReLU()
-        self.linear2 = nn.Linear(input_dim//2, output_dim)
+        # self.linear1 = nn.Linear(input_dim, input_dim//2)
+        # self.relu = nn.ReLU()
+        # self.linear2 = nn.Linear(input_dim//2, output_dim)
+        self.linear = nn.Linear(input_dim, output_dim)
 
     def forward(self, x):
-        out = self.linear2(self.relu(self.linear1(x)))
+        # out = self.linear2(self.relu(self.linear1(x)))
+        out = self.linear(x)
         return out
 
 class FixmatchPick_Torch(object):
 
     def __init__(self, img_size, input_dim, num_class, device, step=5, max_iter='auto',
-                 reduce='pca', norm='l2', mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225], fixmatch_threshold = 0.95, lambda_u = 1, lr = 0.03):
+                 reduce='pca', d = 5, norm='l2', mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225], fixmatch_threshold = 0.95, lambda_u = 1, lr = 1e-3):
         self.step = step
         self.max_iter = max_iter
         self.num_class = num_class
         self.input_dim = input_dim
         self.initial_norm(norm)
+        self.initial_embed(reduce, d)
+        self.lr = lr
 
         self.device = device
-        self.model = LogisticRegressionModel(self.input_dim, self.num_class).to(device)
         self.lambda_u = lambda_u
-
-        # Currently no weight decay
-        self.optimizer = optim.SGD(self.model.parameters(), lr=lr,
-                          momentum=0.9, nesterov=True)
 
         self.transform_fix = TransformFix(img_size, mean, std)
         self.elasticnet = ElasticNet(alpha=1.0, l1_ratio=1.0, fit_intercept=True,
@@ -52,7 +67,7 @@ class FixmatchPick_Torch(object):
         self.support_X = self.norm(X)
         self.support_y = y
     
-    def train(self, X, y, weak_x, strong_x, epoch = 10):
+    def train(self, X, y, weak_x, strong_x, epoch = 50):
 
         self.model.train()
         total_loss = 0.
@@ -71,16 +86,22 @@ class FixmatchPick_Torch(object):
                                   reduction='none') * mask).mean()
 
             loss = Lx + self.lambda_u * Lu
-            # loss = Lx
+            loss = Lx
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+            # self.scheduler.step()
             total_loss += loss.detach().item()
             # print(loss.item())
         return total_loss
 
     def predict(self, X, unlabel_X, strong_X, weak_X, show_detail=False, query_y=None):
         
+        self.model = LogisticRegressionModel(self.input_dim, self.num_class).to(self.device)
+        self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr,
+                          momentum=0.9, nesterov=True)
+        # self.optimizer = optim.Adam(self.model.parameters(), lr = self.lr)
+        self.scheduler = get_cosine_schedule_with_warmup(self.optimizer, 0, 2**20)
         # Assert call fit before predict
         assert self.support_X is not None and self.support_y is not None, "Need to call function 'fit' before 'predict'"
         
@@ -108,7 +129,8 @@ class FixmatchPick_Torch(object):
             # set a big number
             self.max_iter = num_support + num_unlabel
         elif self.max_iter == 'fix':
-            self.max_iter = math.ceil(num_unlabel/self.step)
+            # self.max_iter = math.ceil(num_unlabel/self.step)
+            self.max_iter = 15
         else:
             assert float(self.max_iter).is_integer()
         
@@ -130,8 +152,8 @@ class FixmatchPick_Torch(object):
                 score = F.softmax(predicts.detach_(), dim=-1)
                 max_probs, predicts = torch.max(score, dim=-1)
                 predicts = predicts.cpu().detach().numpy()
-                # print(predicts == query_y)
-                acc_list.append(np.mean(predicts == query_y))
+                # print(np.mean(predicts == query_y))
+                # acc_list.append(np.mean(predicts == query_y))
 
 
             # # Get pseudo labels for the unlabeled set
@@ -144,6 +166,9 @@ class FixmatchPick_Torch(object):
             # Do we want to remove weak X from weak aug after expansion?
             total_loss = self.train(embeddings[support_set], y[support_set], weak_X, strong_X)
             
+            # if len(support_set) == len(embeddings):
+            #     break
+
             # prob = self.model(unlabel_X)
             # score = F.softmax(prob.detach_(), dim=-1)
             # max_probs, pseudo_y = torch.max(score, dim=-1)
@@ -156,14 +181,18 @@ class FixmatchPick_Torch(object):
             # # print(weak_X.shape)
             
             # # Add new data to support set
+            # old_len = len(support_set)
             # support_set = self.expand(support_set, way, num_support, pseudo_y, weak_prob, strong_prob)
+            # if old_len!=len(support_set):
+            #     self.model = LogisticRegressionModel(self.input_dim, self.num_class).to(self.device)
+            #     self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr,
+            #                     momentum=0.9, nesterov=True)
 
             # # Fit the classifier on expanded embeddings and labels
             # # self.classifier.fit(embeddings[support_set], y[support_set])
 
             # # If all data were expanded
-            # if len(support_set) == len(embeddings):
-            #     break
+
         
         # Use the final classifier to do the prediction
         predicts = self.model(query_X)
