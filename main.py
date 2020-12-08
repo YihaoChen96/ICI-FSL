@@ -12,6 +12,7 @@ from sklearn.preprocessing import normalize
 from config import config
 from datasets import CategoriesSampler, DataSet, FixMatchDataSet
 from models.ici import ICI
+from models.ici_torch import ICITorch
 from models.baseline import RandomPick
 from models.consistancy import FixmatchPick
 from models.transforms import TransformFix
@@ -109,6 +110,9 @@ def test(args):
         data_picker = ICI(classifier=args.classifier, num_class=args.num_test_ways,
                 step=args.step, reduce=args.embed, d=args.dim)
         # dataset = DataSet(data_root, 'test', args.img_size)
+    elif args.data_picker == "ici_torch":
+        data_picker = ICITorch(512, args.num_test_ways, args.device,
+                step=args.step, reduce=args.embed, d=args.dim, max_iter = "fix")
 
     elif args.data_picker == "random":
         data_picker = RandomPick(classifier=args.classifier, num_class=args.num_test_ways,

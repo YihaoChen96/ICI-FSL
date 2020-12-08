@@ -49,10 +49,14 @@ class ICI(object):
         self.classifier.fit(self.support_X, self.support_y)
         if show_detail:
             acc_list = []
-        for _ in range(self.max_iter):
+        if show_detail:
+            predicts = self.classifier.predict(query_X)
+            start_acc = np.mean(predicts == query_y)
+        for idx in range(self.max_iter):
             if show_detail:
                 predicts = self.classifier.predict(query_X)
-                acc_list.append(np.mean(predicts == query_y))
+                print("Improvements on iter %d: %.2f" % (idx+1, np.mean(predicts == query_y) - start_acc))
+            
             pseudo_y = self.classifier.predict(unlabel_X)
             y = np.concatenate([support_y, pseudo_y])
             Y = self.label2onehot(y, way)
@@ -65,6 +69,8 @@ class ICI(object):
                 break
         predicts = self.classifier.predict(query_X)
         if show_detail:
+            end_acc = np.mean(predicts == query_y)
+            print("Final Improvements: %.2f" % (end_acc-start_acc) )
             acc_list.append(np.mean(predicts == query_y))
             return acc_list
         return predicts
