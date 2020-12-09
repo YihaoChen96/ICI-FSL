@@ -55,7 +55,8 @@ class ICI(object):
         for idx in range(self.max_iter):
             if show_detail:
                 predicts = self.classifier.predict(query_X)
-                print("Improvements on iter %d: %.2f" % (idx+1, np.mean(predicts == query_y) - start_acc))
+                # print("Improvements on iter %d: %.2f" % (idx+1, np.mean(predicts == query_y) - start_acc))
+                acc_list.append(np.mean(predicts == query_y))
             
             pseudo_y = self.classifier.predict(unlabel_X)
             y = np.concatenate([support_y, pseudo_y])
@@ -70,7 +71,7 @@ class ICI(object):
         predicts = self.classifier.predict(query_X)
         if show_detail:
             end_acc = np.mean(predicts == query_y)
-            print("Final Improvements: %.2f" % (end_acc-start_acc) )
+            # print("Final Improvements: %.2f" % (end_acc-start_acc) )
             acc_list.append(np.mean(predicts == query_y))
             return acc_list
         return predicts
