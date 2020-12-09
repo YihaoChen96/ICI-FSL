@@ -78,7 +78,6 @@ class ICITorch(object):
         num_unlabel = unlabel_X.shape[0]
         assert self.support_X is not None
 
-
         embeddings = np.concatenate([support_X, unlabel_X])
         X = self.embed(embeddings)
         H = np.dot(np.dot(X, np.linalg.inv(np.dot(X.T, X))), X.T)
@@ -88,7 +87,7 @@ class ICITorch(object):
             self.max_iter = num_support + num_unlabel
         elif self.max_iter == 'fix':
             # self.max_iter = math.ceil(num_unlabel/self.step)
-            self.max_iter = 2
+            self.max_iter = 15
         else:
             assert float(self.max_iter).is_integer()
         support_set = np.arange(num_support).tolist()
