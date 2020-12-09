@@ -84,9 +84,9 @@ class FixmatchPick_Torch(object):
 
             Lu = (F.cross_entropy(strong_prob, targets_u,
                                   reduction='none') * mask).mean()
-
+            # print("Lx: %.2f Lu:%.2f" %(Lx, Lu))
             loss = Lx + self.lambda_u * Lu
-            loss = Lx
+            # loss = Lx
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
@@ -98,18 +98,33 @@ class FixmatchPick_Torch(object):
     def predict(self, X, unlabel_X, strong_X, weak_X, show_detail=False, query_y=None):
         
         # self.optimizer = optim.Adam(self.model.parameters(), lr = self.lr)
-        self.scheduler = get_cosine_schedule_with_warmup(self.optimizer, 0, 2**20)
+        # self.scheduler = get_cosine_schedule_with_warmup(self.optimizer, 0, 2**20)
         # Assert call fit before predict
-        assert self.support_X is not None and self.support_y is not None, "Need to call function 'fit' before 'predict'"
+        # assert self.support_X is not None and self.support_y is not None, "Need to call function 'fit' before 'predict'"
         
+        support_X, support_y = self.support_X, self.support_y
+        way, num_support = self.num_class, len(support_X)
+        query_X = self.norm(X)
+        if unlabel_X is None:
+            unlabel_X = query_X
+        else:
+            unlabel_X = self.norm(unlabel_X)
+        num_unlabel = unlabel_X.shape[0]
+        assert self.support_X is not None
+
+        embeddings = np.concatenate([support_X, unlabel_X])
+        X = self.embed(embeddings)
+        H = np.dot(np.dot(X, np.linalg.inv(np.dot(X.T, X))), X.T)
+        X_hat = np.eye(H.shape[0]) - H
+
         # Get support data and numbers
         support_X, support_y = torch.from_numpy(self.support_X).to(self.device), torch.from_numpy(self.support_y).to(self.device)
         way, num_support = self.num_class, len(support_X)
-        
         # Normalize data
-        query_X = torch.from_numpy(self.norm(X)).to(self.device)
+        query_X = torch.from_numpy(query_X).to(self.device)
+        unlabel_X = torch.from_numpy(unlabel_X).to(self.device)
+        embeddings = torch.from_numpy(embeddings).to(self.device)
 
-        unlabel_X = torch.from_numpy(self.norm(unlabel_X)).to(self.device)
         weak_X = torch.from_numpy(self.norm(weak_X)).to(self.device)
         strong_X = torch.from_numpy(self.norm(strong_X)).to(self.device)
 
@@ -127,12 +142,12 @@ class FixmatchPick_Torch(object):
             self.max_iter = num_support + num_unlabel
         elif self.max_iter == 'fix':
             # self.max_iter = math.ceil(num_unlabel/self.step)
-            self.max_iter = 2
+            self.max_iter = 5
         else:
             assert float(self.max_iter).is_integer()
         
         support_set = np.arange(num_support).tolist()
-        
+        y = support_y
         self.model = LogisticRegressionModel(self.input_dim, self.num_class).to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         total_loss = self.train(embeddings[support_set], y[support_set], weak_X, strong_X)
@@ -146,6 +161,7 @@ class FixmatchPick_Torch(object):
         # Define the accuracy list
         if show_detail:
             acc_list = []
+            improve_list = []
 
         # print(self.max_iter)
         for idx in range(self.max_iter):
@@ -159,26 +175,43 @@ class FixmatchPick_Torch(object):
 
             # Transform the labels into one-hot encoding
             y = torch.cat([support_y, pseudo_y])
+            Y = self.label2onehot(y, way)
+            y_hat = np.dot(X_hat, Y)
+            # # Add new data to support set
+            # old_len = len(support_set)
+            # support_set = self.expand(support_set, way, num_support, pseudo_y, weak_prob, strong_prob)
+            # if old_len!=len(support_set):
+                # self.model = LogisticRegressionModel(self.input_dim, self.num_class).to(self.device)
+                # self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+                # # Do we want to remove weak X from weak aug after expansion?
+                # total_loss = self.train(embeddings[support_set], y[support_set], weak_X, strong_X)
             
-            # Add new data to support set
-            old_len = len(support_set)
-            support_set = self.expand(support_set, way, num_support, pseudo_y, weak_prob, strong_prob)
-            if old_len!=len(support_set):
-                self.model = LogisticRegressionModel(self.input_dim, self.num_class).to(self.device)
-                self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
-                # Do we want to remove weak X from weak aug after expansion?
-                total_loss = self.train(embeddings[support_set], y[support_set], weak_X, strong_X)
-            
+            # support_set = self.random_expand(support_set, way, num_support, pseudo_y)
+            support_set = self.ici_expand(support_set, X_hat, y_hat, way, num_support, pseudo_y,
+                                      embeddings, y)
+            # support_set = self.ici_consistancy_expand(support_set, X_hat, y_hat, way, num_support, pseudo_y,
+                                    #   embeddings, y, weak_prob, strong_prob)
+            self.model = LogisticRegressionModel(self.input_dim, self.num_class).to(self.device)
+            self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+            # Do we want to remove weak X from weak aug after expansion?
+            total_loss = self.train(embeddings[support_set], y[support_set], weak_X, strong_X)
+
             if show_detail:
                 predicts = self.model(query_X)
                 score = F.softmax(predicts.detach_(), dim=-1)
                 max_probs, predicts = torch.max(score, dim=-1)
                 predicts = predicts.cpu().detach().numpy()
-                acc_list.append(np.mean(predicts == query_y))
-
+                acc = np.mean(predicts == query_y)
+                acc_list.append(acc)
+                # print("Improvements on iter %d: %.2f" % (idx+1, (acc-start_acc)))
+                improve_list.append(acc-start_acc)
             if len(support_set) == len(embeddings):
                 break
 
+        self.model = LogisticRegressionModel(self.input_dim, self.num_class).to(self.device)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
+        # Do we want to remove weak X from weak aug after expansion?
+        total_loss = self.train(embeddings[support_set], y[support_set], weak_X, strong_X)
         self.model.eval()
         # Use the final classifier to do the prediction
         predicts = self.model(query_X)
@@ -189,11 +222,73 @@ class FixmatchPick_Torch(object):
         # print(query_y)
         if show_detail:
             end_acc = np.mean(predicts == query_y)
-            print("Final Improvements: %.2f" % (end_acc-start_acc))
+            # print("Final Improvements: %.2f" % (end_acc-start_acc))
             acc_list.append(np.mean(predicts == query_y))
+            improve_list.append(end_acc-start_acc)
+            print("Avg Improvements: %.2f" % np.mean(improve_list))
             return acc_list
         return predicts
 
+    def random_expand(self, support_set, way, num_support, pseudo_y):
+        
+        selected_per_class = np.zeros(way)
+
+        # Randomly choose 
+        num2select = min((way*self.step), len(pseudo_y))
+
+        i = 0
+
+        for i in range(len(pseudo_y)):
+            if  (selected_per_class[pseudo_y[i]] < self.step) and (i+num_support not in support_set):
+                support_set.append(i+num_support)
+                selected_per_class[pseudo_y[i]] += 1
+
+            # If already each class has more than num_step data selected  
+            if np.sum(selected_per_class >= self.step) == way:
+                break
+
+        return support_set
+
+    def ici_expand(self, support_set, X_hat, y_hat, way, num_support, pseudo_y, embeddings, targets):
+        _, coefs, _ = self.elasticnet.path(X_hat, y_hat, l1_ratio=1.0)
+        coefs = np.sum(np.abs(coefs.transpose(2, 1, 0)[
+                       ::-1, num_support:, :]), axis=2)
+        selected = np.zeros(way)
+        for gamma in coefs:
+            for i, g in enumerate(gamma):
+                if g == 0.0 and \
+                    (i+num_support not in support_set) and \
+                        (selected[pseudo_y[i]] < self.step):
+                    support_set.append(i+num_support)
+                    selected[pseudo_y[i]] += 1
+            if np.sum(selected >= self.step) == way:
+                break
+        return support_set
+
+    def ici_consistancy_expand(self, support_set, X_hat, y_hat, way, num_support, pseudo_y, embeddings, targets, weak_prob, strong_prob):
+        weak_prob = weak_prob.detach()
+        strong_prob = strong_prob.detach()
+        pseudo_y = pseudo_y.detach()
+        weak_argmax = torch.argmax(weak_prob, dim = 1)
+        strong_argmax = torch.argmax(strong_prob, dim = 1)
+
+        _, coefs, _ = self.elasticnet.path(X_hat, y_hat, l1_ratio=1.0)
+        coefs = np.sum(np.abs(coefs.transpose(2, 1, 0)[
+                       ::-1, num_support:, :]), axis=2)
+        selected = np.zeros(way)
+        for gamma in coefs:
+            for i, g in enumerate(gamma):
+                if g == 0.0 and \
+                    (i+num_support not in support_set) and \
+                        (selected[pseudo_y[i]] < self.step) and \
+                        (weak_argmax[i] == strong_argmax[i]) and \
+                        (weak_prob[i, weak_argmax[i]] > self.threshold) :
+
+                    support_set.append(i+num_support)
+                    selected[pseudo_y[i]] += 1
+            if np.sum(selected >= self.step) == way:
+                break
+        return support_set
 
     def expand(self, support_set, way, num_support, pseudo_y, weak_prob, strong_prob):
         weak_prob = weak_prob.detach()
